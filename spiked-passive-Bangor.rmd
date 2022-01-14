@@ -1,0 +1,728 @@
+---
+title: "Draft 1"
+author: "Cameron Pellett & Katy Lambert-Slosarska"
+date: "14/01/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE, warning = FALSE, message = FALSE, fig.height = 9, fig.width = 9)
+```
+
+```{r packages}
+library(tidyverse)
+library(patchwork)
+library(broom)
+library(ggbeeswarm)
+
+theme_set(theme_grey()+theme(panel.background = element_rect(fill = "grey96")))
+```
+
+```{r functions}
+
+#summarises mean, sd, se, ci for bar charts
+mean_ci_summary <- function(data, groups, variable, log10 = FALSE){
+  
+  data <- data|>ungroup()
+  
+  for (i in 1:length(groups)) {
+    
+    data <- data|>
+      group_by(.data[[ groups[i] ]], .add = TRUE)
+    
+  }
+  
+  if(log10 == TRUE){
+    
+    data|>
+    mutate(varna = case_when(is.na(.data[[variable]]) | is.nan(.data[[variable]]) | is.infinite(.data[[variable]]) ~ as.integer(1),
+                             TRUE ~ NA_integer_))|>
+      summarise(mean = mean(log10(.data[[variable]]), na.rm = TRUE),
+                sd = sd(log10(.data[[variable]]), na.rm = TRUE),
+                n = n() - sum(varna, na.rm = TRUE))|>
+      mutate(se = sd / sqrt(n),
+             ci = se * qt(1 - 0.05 / 2, n-1))
+    
+  }else {
+    
+    data|>
+      mutate(varna = case_when(is.na(.data[[variable]]) | is.nan(.data[[variable]]) | is.infinite(.data[[variable]]) ~ as.integer(1),
+                             TRUE ~ NA_integer_))|>
+      summarise(mean = mean(.data[[variable]], na.rm = TRUE),
+                sd = sd(.data[[variable]], na.rm = TRUE),
+                n = n()  - sum(varna, na.rm = TRUE))|>
+      mutate(se = sd / sqrt(n),
+             ci = se * qt(1 - 0.05 / 2, n-1))
+    
+  }
+}
+
+pvalue_fun <- function(p.value){
+  if(is.na(p.value)){
+    NA_character_
+  }else if(p.value > 0.05){
+    "> 0.05"
+  }else if(p.value < 0.05 & p.value > 0.01){
+    "< 0.05"
+  }else if(p.value < 0.01 & p.value > 0.001){
+    "< 0.01"
+  }else if(p.value < 0.001){
+    "< 0.001"
+  }else {
+    "something went wrong"
+  }
+}
+
+pvalue_star <- function(p.value){
+  if(is.na(p.value)){
+    NA_character_
+  }else if(p.value > 0.05){
+    "."
+  }else if(p.value < 0.05 & p.value > 0.01){
+    "*"
+  }else if(p.value < 0.01 & p.value > 0.001){
+    "**"
+  }else if(p.value < 0.001){
+    "***"
+  }else {
+    "something went wrong"
+  }
+}
+
+stat_paste_fun <- function(stat, log = FALSE){
+  if(log != TRUE){
+  stat_paste <- paste0(str_remove_all(stat[["method"]][[1]], "\n\t"), ": ", 
+         str_remove_all(names(stat[["statistic"]]), "Kruskal-Wallis "), " = ",
+         round(stat[["statistic"]][[1]],1), ", ",
+         if(length(stat[["parameter"]]) == 0)
+         {""
+         }else if(is.na(stat[["parameter"]])){
+           ""
+         }else if(length(stat[["parameter"]]) > 0){
+           paste0("df = ", round(stat[["parameter"]], 0), ", ")
+         } ,
+         "p-value ",  pvalue_fun(stat[["p.value"]]))
+  }else{
+  stat_paste <- paste0(str_remove_all(stat[["method"]][[1]], "\n\t"), " (log y): ", 
+           str_remove_all(names(stat[["statistic"]]), "Kruskal-Wallis "), " = ",
+           round(stat[["statistic"]][[1]],1), ", ",
+           if(length(stat[["parameter"]]) == 0)
+           {""
+           }else if(is.na(stat[["parameter"]])){
+             ""
+           }else if(length(stat[["parameter"]]) > 0){
+             paste0("df = ", round(stat[["parameter"]], 0), ", ")
+           } ,
+           "p-value ",  pvalue_fun(stat[["p.value"]]))
+  }
+  
+ stat_paste2 <- str_replace(stat_paste, "One-way analysis of means [(]not assuming equal variances[])]", "Welch ANOVA")
+  
+  return(stat_paste2)
+}
+
+paste_anova_fun <- function(anova, log = FALSE){
+  
+  if(log != TRUE){
+  paste0("ANOVA: ", "F value = ", round((anova$`F value`)[1], 2), ", ", "p-value ", pvalue_fun(anova$`Pr(>F)`[1]))
+  }else {
+    paste0("ANOVA (log y): ", "F value = ", round((anova$`F value`)[1], 2), ", ", "p-value ", pvalue_fun(anova$`Pr(>F)`[1])) 
+  }
+}
+
+lmR2adj <- function(lm){
+  
+  R2 <- 1-((sum(residuals(lm)^2))/
+             (sum((lm$model[[1]] - mean(lm$model[[1]]))^2)))
+  
+  1- ((1 - R2) * (length(lm$model[[1]] ) - 1)/
+                 (length(lm$model[[1]] ) - length(lm$coefficients) - 1))
+}
+
+lmR2 <- function(lm){
+  
+  1-((sum(residuals(lm)^2))/
+             (sum((lm$model[[1]] - mean(lm$model[[1]]))^2)))
+}
+
+glmR2 <- function(glm, adj = FALSE){
+  
+  residuals <- glm[["y"]] - glm[["fitted.values"]]
+  
+  R2 <- 1-((sum(residuals^2))/
+             (sum((glm$model[[1]] - mean(glm$model[[1]]))^2)))
+  
+  if(adj != TRUE){
+    
+  return(R2)
+    
+  }else {
+    
+    1- ((1 - R2) * (length(glm$model[[1]] ) - 1)/
+                 (length(glm$model[[1]] ) - length(glm$coefficients) - 1))
+  }
+}
+
+
+
+pairwise_diff_comps <- function(pairwise_pv_matrix){
+  
+  pairwise_diff <- as_tibble(pairwise_pv_matrix, rownames = "vars")|>
+  pivot_longer(2:last_col(), names_to = "var.y", values_to = "p.value")|>
+  na.omit()|>
+  filter(p.value < 0.05)|>
+  select(1,2)|>
+  unite("comp", c(1,2), sep = " ~ ")
+  
+  comp_diffs <- ""
+  
+  for (i in 1:nrow(pairwise_diff)) {
+    
+    if(i == nrow(pairwise_diff)){
+      comp_diffs <- paste0(c(comp_diffs, pairwise_diff[[i,1]]), collapse = ", and ")
+    }else if(i != 1){
+      comp_diffs <- paste0(c(comp_diffs, pairwise_diff[[i,1]]), collapse = ", ")
+    }else{
+      comp_diffs <- pairwise_diff[[i,1]]
+    }
+    
+  }
+  
+  return(comp_diffs)
+}
+
+plot_assumptions <- function(model, obs, bins = 30){
+        #create tibble for use in ggplot of model assumptions
+        df <- tibble(
+                observations = obs,
+                fitted = fitted(model),
+                residuals = resid(model),
+                standardised_residuals = sqrt(resid(model)^2),
+                RMSresiduals = sqrt(mean(resid(model)^2)))
+        
+        
+        a <- ggplot(df, aes(fitted, residuals))+
+                geom_point()+
+                geom_abline(aes(slope = 0, intercept = 0))
+                #labs(title = "Heteroscedasticity", subtitle = "Check trends not captured by model")
+        
+        b <- ggplot(df, aes(residuals))+
+                geom_histogram(bins = bins)
+        
+        c <- ggplot(df, aes(sample = residuals))+
+                geom_qq()+
+                geom_qq_line()#+
+                #labs(title = "Quantile-quantile plot", subtitle = "check normality of residuals")
+        
+        d <- ggplot(df, aes(observations, fitted))+
+                geom_point()+
+                geom_abline()#+
+                #labs(subtitle = "Check accuracy of model across whole dataset")
+        
+        plot <- a+b+c+d+plot_layout(ncol = 2, nrow = 2)+plot_annotation(tag_levels = "a")
+        return(plot)
+} 
+
+```
+
+```{r data import and clean}
+
+data <- read_csv("recovery_data.csv")
+
+virus_char <- read_csv("virus_characteristics.csv")|>
+  pivot_longer(2:12, names_to = "virus", values_to = "value")|>
+  pivot_wider(names_from = "X1", values_from = "value")|>
+  mutate(virus = str_replace_all(virus, c("SARS" = "N1")))
+
+clean <- data|>
+  select(-Sample_code)|>
+  rename("method" = Method, "spike" = Spike,
+         "water_type" = Water_type, "material" = Material,
+         "replicate" = Replicate)|>
+  pivot_longer(cols = contains("rec"), names_to = "virus", values_to = "rec")|>
+  mutate(virus = str_remove_all(virus, "_recoveries"))|>
+  mutate(rec = case_when((spike == "U" & virus %in% c("N1", "Phi6", "NoVGII", "Flu-A", "Flu-B") ) ~ NA_real_,
+                         spike == "S" & water_type == "DW" & virus %in% c("AdV", "PMMoV", "CrAss") ~ NA_real_,
+                         TRUE ~ rec),
+         rec = rec * 100)|>
+  left_join(virus_char, by = "virus")|>
+  mutate(rec = case_when(round(rec,6) <= 0 ~ NA_real_,
+                        TRUE ~ round(rec,6)),
+         shape = factor(shape),
+         water_type = factor(water_type),
+         enveloped = factor(enveloped),
+         size_nm = as.double(size_nm),
+         method = factor(method),
+         genome = factor(genome),
+         samples_spiked = str_replace_all(samples_spiked, c("yes" = "S",
+                                                            "no" = "U")))|>
+  na.omit()
+
+
+```
+
+```{r notes}
+
+notes <- (tibble(estimate.x = "p-value: < 0.001 [***]; < 0.01 [**]; < 0.05 [*]; > 0.05 [.]"))
+```
+
+```{r full dataset plot, fig.height = 13, fig.width=9}
+ww_all <- clean|>
+  filter(water_type == "WW")|>
+  mutate(material = str_replace_all(material, c("W" = "Whatman paper",
+                                                "T" = "Tampon")),
+        material = paste0(material, " WW"))|>
+  ggplot(aes(y = rec, x =method))+
+  geom_beeswarm(cex = 2)+
+  geom_beeswarm(cex = 2, size = 0.1, colour = "white")+
+  scale_y_continuous(sec.axis = sec_axis( trans=~.*1, name="Virus", labels = NULL, breaks = NULL))+
+  facet_grid(samples_spiked + virus ~ material, scale = "free", space = "free_x")+
+  labs(x = "Concentration method", y = "Recovery (%)")
+
+dw_all <- clean|>
+  filter(water_type == "DW", samples_spiked == "S")|>
+  mutate(material = str_replace_all(material, c("W" = "Whatman paper",
+                                                "T" = "Tampon")),
+        material = paste0(material, " DW"))|>
+  ggplot(aes(y = rec, x =method))+
+  geom_beeswarm(cex = 2)+
+  geom_beeswarm(cex = 2, size = 0.1, colour = "white")+
+  scale_y_continuous(sec.axis = sec_axis( trans=~.*1, name="Virus", labels = NULL, breaks = NULL))+
+  facet_grid(samples_spiked + virus ~ material, scale = "free", space = "free_x")+
+  labs(x = "Concentration method", y = "Recovery (%)")
+
+WWDW_all <- (ww_all + theme(axis.title.x = element_blank())) / dw_all + plot_layout(heights = c(1.1, 0.8))
+```
+
+## 2. Methods
+
+### 2.1 Statistical methodology
+
+Data analysis and statistical tests were carried out in R (R Core Team, 2020); the full script and data are provided in a dedicated repository (<https://github.com/CameronPellett/spiked-passive-Bangor>).
+
+Passive sample material (tampon and Whatman paper), concentration and extraction method (BE-PEG, Direct extraction, No elution PEG, and PBS-PEG), water type (wastewater WW, and deionised water DW), target virus shape and genome type (spherical-RNA, head-tail-DNA, icosahedral-DNA, helical-RNA, and icosahedral-RNA), and virus envelope (Enveloped, and naked) were selected as factors and co-variates of viral recovery. Comparisons of individual features were visualised, and statistical tests were carried out. First, viral recovery was compared between water types; comparisons were made with only spiked samples, due to a lack of naturally present virus in deionised water. Second, the tampon and Whatman paper passive sample materials were compared; only samples suspended in wastewater were compared to mimic expected conditions. Third, after selecting the best material, concentration and extraction methods were compared for samples suspended in wastewater. Then finally, virus characteristics were compared with tampon passive samplers suspended in wastewater. For statistical tests the recovery percentile was log transformed to meet assumptions of a Gaussian distribution (see supplementary materials Figure S1-S6 for quantile-quantile plots). Equality of variances were tested with F tests. Statistical comparisons of features with two levels and non-equal variance were made with Welch two sample t-tests. Comparisons with three or more levels and non-equal variance were made with a Welch ANOVA (one way comparison of means), followed by pairwise two sample t-tests without pooled standard deviations, adjusting p-values with the Holm-Bonferroni method. Paired tests were not selected due to missing data created by removal of undetermined results and sample removal during qPCR quality control. 
+
+
+<br>
+
+
+## 3. Results
+
+
+### 3.1. Wastewater reduces recovery of spiked virus compared to deionised water
+
+```{r water type comp}
+wt_comp <- clean|>
+  filter(spike == "S" & samples_spiked == "S",
+         virus != "MNV")
+
+wt_comp_t.t <- tibble(label = stat_paste_fun(t.test(log(rec) ~ water_type, data = wt_comp), log = TRUE),
+       row = 1)
+
+f <- var.test(log(rec) ~ water_type, data = wt_comp)
+
+Figure1 <- (wt_comp|>
+  mutate(row = row_number())|>
+  left_join(wt_comp_t.t, by = "row")|>
+  ggplot(aes(water_type, rec))+
+  geom_boxplot(width = 2, outlier.alpha = 0)+
+  geom_beeswarm(cex = 0.5, alpha = 0.5)+
+    geom_beeswarm(cex = 0.5, shape = ".", colour = "white")+
+  geom_text(aes(x = 1.5, y = max(rec) + (0.07 * (max(rec) - min(rec))),
+                label = label), size = 3)+
+  labs(x = "Water type",
+       y = "Recovery (%)")) +
+  
+  (wt_comp|>
+  ggplot(aes(water_type, rec))+
+  geom_boxplot(width = 2, outlier.alpha = 0)+
+  geom_beeswarm(alpha = 0.3, cex = 3, size = 1)+
+    geom_beeswarm(cex = 3, shape = ".", colour = "white")+
+  facet_wrap(~virus, ncol = 4)+
+  labs(x = "Water type",
+       y = "Recovery (%)") +
+  theme(axis.title.y = element_blank())) +
+  
+  plot_layout(widths = c(1.3, 0.7), nrow = 2, ncol = 1) +
+    plot_annotation(tag_levels = "a")
+  
+```
+
+Passive samples had a greater median recovery of spiked virus when suspended in deionised water (`r round(median(wt_comp|>filter(water_type == "DW")|>pull(rec)),2)`%) compared to wastewater (`r round(median(wt_comp|>filter(water_type == "WW")|>pull(rec)),2)`%). The difference between water types was found to be significant when comparing log transformed recovery (Figure 1a; `r stat_paste_fun(t.test(log(rec) ~ water_type, data = wt_comp), log = TRUE)`). These results suggest chemicals or other materials in wastewater influence uptake of virus on the passive sampler or inhibit later processing and quantification of the viral nucleotides collected in the sample. After identifying the difference in recovery between water types, only data for wastewater suspended samples was retained for further analysis to imitate expected conditions. 
+
+
+<br>
+
+
+```{r fig1}
+Figure1
+```
+
+Figure 1: Comparison of spiked virus recovery using passive samplers in wastewater (WW) and deionised water (DW). Panel 'a' combines data for all viruses, whilst panel 'b' separates recovery by each virus. A Welch two sample t-test was used to compare log transformed recoveries.
+
+
+
+<br>
+
+
+### 3.2. Tampon passive samplers have improved recovery over Whatman paper
+
+```{r material}
+clean_ww <- clean|>
+  filter(water_type == "WW")
+
+f <- var.test(log(rec) ~ material, data = clean_ww)
+
+material_comp_t.t <- tibble(label = stat_paste_fun(t.test(log(rec) ~ material, data = clean_ww), log = TRUE),
+       row = 1)
+
+fig2a <- clean_ww|>
+  mutate(row = row_number(),
+         material = str_replace_all(material, c("W" = "Whatman",
+                                                "T" = "Tampon")))|>
+  left_join(material_comp_t.t, by = "row")|>
+  ggplot(aes(material, rec))+
+  geom_boxplot(outlier.alpha = 0)+
+  geom_beeswarm(cex = 0.5, alpha = 0.5)+
+  geom_beeswarm(cex = 0.5, shape = ".", colour = "white")+
+  geom_text(aes(x = 1.5, y = max(rec) + (0.07 * (max(rec) - min(rec))),
+                label = label), size = 3)+
+  labs(x = "Material",
+       y = "Recovery (%)")
+  
+fig2b <- clean_ww|>
+  ggplot(aes(material, rec))+
+  geom_boxplot(outlier.alpha = 0)+
+  geom_beeswarm(alpha = 0.3, cex = 3, size = 1)+
+  geom_beeswarm(shape = ".", cex = 3, colour = "white")+
+  facet_wrap(~virus, scales = "free")+
+  labs(x = "Material",
+       y = "Recovery (%)")+
+  theme(axis.title = element_blank()) 
+
+fig2 <- fig2a/ fig2b + plot_layout( heights = c(1.3, 0.7)) + plot_annotation(tag_levels = "a")
+
+```
+
+The median recovery of Tampon passive samplers (`r round(clean_ww|>filter(material == "T")|>pull(rec)|>median(), 2)`%) was greater than Whatman paper (`r round(clean_ww|>filter(material == "W")|>pull(rec)|>median(), 2)`%). Which was found to be significant when comparing log transformed recovery (Figure 2a; `r stat_paste_fun(t.test(log(rec) ~ material, data = wt_comp), log = TRUE)`). The same trend was seen in all individual viruses (Figure 2b). These results indicate Tampon material is preferred for construction of passive samplers. After selecting the preferred material, only data for tampon passive samplers was retained for further analysis.
+
+
+<br>
+
+
+```{r fig2}
+fig2
+```
+
+
+Figure 2: comparison of viral recovery with tampon and Whatman paper passive samplers suspended in wastewater. Panel 'a' combines data for all viruses, whilst panel 'b' separates recovery by each virus. A Welch two sample t-test was used to compare log transformed recoveries.
+
+
+
+<br>
+
+
+### 3.3. No elution PEG and direct extraction methods have improved viral recovery
+
+```{r, method}
+
+clean_ww_t <- clean_ww|>
+  filter(material == "T")
+
+f <- var.test(log(rec) ~ method, data = filter(clean_ww_t, method %in% c("D", "N")))
+
+lm_meth <- lm(log(rec) ~ method, data = clean_ww_t)
+
+meth_comp_aov <- tibble(label = stat_paste_fun(oneway.test(log(rec) ~ method, data = clean_ww_t), log = TRUE)[1],
+                       row = 1)
+
+meth_pairwise.t.test <- pairwise.t.test(log(clean_ww_t$rec), as.factor(clean_ww_t$method), pool.sd = FALSE)[["p.value"]]|>
+  as_tibble(rownames = "varx")|>
+  pivot_longer(2:4, names_to = "vary", values_to = "p.v")
+
+fig3a <- clean_ww_t|>
+  mutate(method = str_replace_all(method, c(
+                                            "P" = "PBS-PEG (P)",
+                                            "N" = "No elution PEG (N)",
+                                            "BE" = "BE-PEG (BE)",
+                                            "D" = "Direct extraction (D)")),
+         method = fct_reorder(method, rec),
+         row = row_number())|>
+  left_join(meth_comp_aov, by = "row")|>
+  ggplot(aes(method, rec))+
+  geom_boxplot(outlier.alpha = 0)+
+  geom_beeswarm(cex = 0.5, alpha = 0.5)+
+  geom_beeswarm(cex = 0.5, shape = ".", colour = "white")+
+  geom_text(aes(x = 2.5, y = max(rec) + (0.07 * (max(rec) - min(rec))),
+                label = label), size = 3)+
+  labs(x = "Concentration method",
+       y = "Recovery (%)") 
+  
+fig3b <- clean_ww_t|>
+  mutate(method = fct_reorder(str_replace_all(method, c("Amicon" = "Ami",
+                                                        "BE-PEG" = "BE-P")), rec))|>
+  ggplot(aes(method, rec))+
+  geom_boxplot(outlier.alpha = 0)+
+  geom_beeswarm(alpha = 0.3, cex = 3, size = 1)+
+  geom_beeswarm(shape = ".", cex = 3, colour = "white")+
+  facet_wrap(~virus, scale = "free")+
+  labs(x = "Concentration method",
+       y = "Recovery (%)") 
+  
+fig3c <- meth_pairwise.t.test|>
+  rowwise()|>
+  mutate(p.v = pvalue_star(p.v),
+         varx = str_replace_all(varx, c("Amicon" = "Ami",
+                                          "BE-PEG" = "BE-P")),
+         vary = str_replace_all(vary, c("Amicon" = "Ami",
+                                          "BE-PEG" = "BE-P")))|>
+  ggplot(aes(varx, vary))+
+  geom_tile(fill = "grey97", colour = "white")+
+  geom_text(aes(label = p.v))+
+  xlab("Method")+
+  theme(axis.title.y = element_blank())
+
+fig3 <- fig3a / (fig3b + (fig3c/ plot_spacer()) + plot_layout(widths = c(1.35, 0.25))) + plot_layout(heights = c(1.3, 0.7), nrow = 2, ncol = 1) + plot_annotation(tag_levels = "a")
+  
+
+```
+
+The no elution PEG concentration method had the highest median recovery (`r round(clean_ww_t|>filter(method == "N")|>pull(rec)|>median(), 2)`%), followed by direct extraction (`r round(clean_ww_t|>filter(method == "D")|>pull(rec)|>median(), 2)`%), BE-PEG (`r round(clean_ww_t|>filter(method == "BE")|>pull(rec)|>median(), 2)`%), then PBS-PEG (`r round(clean_ww_t|>filter(method == "P")|>pull(rec)|>median(), 2)`%). Significant differences between the log transformed recovery were found (Figure 3a; `r stat_paste_fun(oneway.test(log(rec) ~ method, data = clean_ww_t), log = TRUE)[1]`), though pairwise comparisons found no significant difference between the no elution PEG and direct extraction methods (Figure 3c). Which was likely due to some viruses (AdV and Phi6) having greater recovery with direct extraction compared to no elution PEG (Figure 3b). These results suggest the no elution PEG method is generally preferred for processing passive samples, but if AdV or Phi6 are the primary targets, the direct extraction method may be selected.
+
+
+
+<br>
+
+
+```{r fig3}
+fig3
+```
+
+
+Figure 3: comparison of viral recovery between concentraion/extraction methods carried out on tampon passive samples suspended in wastewater. Panel 'a' combines data for all viruses, panel 'b' separates recovery by each virus, and panel 'c' shows p-values (`r pull(notes,1)`) of pairwise comparisons without pooled standard deviations adjusted with the Holm-Bonferroni method.
+
+
+<br>
+
+
+### 3.4. Virus shape and genome type have uncertain impacts on recovery
+
+```{r virus characteristics}
+
+virus_char_ww <- clean_ww_t|>
+  mutate(row = row_number(),
+         shape = paste0(shape, "-", genome))
+
+f <- var.test(log(rec) ~ shape, data = filter(virus_char_ww, shape %in% c("icosahedral-RNA", "helical-RNA")))
+
+
+shapegenome.anova <- tibble(label = stat_paste_fun(oneway.test(log(rec) ~ shape, data = virus_char_ww), log = TRUE)[1],
+                      row = 1)
+
+
+char_pairwise.t.test <- pairwise.t.test(log(virus_char_ww$rec), virus_char_ww$shape, pool.sd = FALSE)[["p.value"]]|>
+  as_tibble(rownames = "varx")|>
+  pivot_longer(2:5, names_to = "vary", values_to = "p.v")
+
+shape <- virus_char_ww|>
+  left_join(shapegenome.anova, by = "row")|>
+  mutate(shape = fct_reorder(shape, rec))|>
+  ggplot(aes(shape, rec))+
+  geom_boxplot(outlier.alpha = 0)+
+  geom_beeswarm(alpha = 0.5)+
+  geom_beeswarm(shape = ".", colour = "white")+
+  geom_text(aes(x = 3, y = max(rec) + (0.07 * (max(rec) - min(rec))),
+                label = label), size = 3)+
+  labs(x = "Virus shape-genome",
+       y = "Recovery (%)")
+
+shape_viruses <- clean_ww_t|>
+  group_by(shape, genome)|>
+  mutate(med = median(rec, na.rm = TRUE))|>
+  ungroup()|>
+  mutate(row = row_number(),
+         shape = fct_reorder(shape, med, median),
+         genome = fct_reorder(genome, rec, median),
+         pntshape1 = case_when(virus %in% c("CrAss", "AdV", "PMMoV") ~ 32,
+                   TRUE ~ 16),
+         pntshape2 = case_when(virus %in% c("CrAss", "AdV", "PMMoV") ~ 16,
+                   TRUE ~ 32),
+         alpha1 = case_when(virus %in% c("CrAss", "AdV", "PMMoV") ~ 0,
+                   TRUE ~ 1),
+         alpha2 = case_when(virus %in% c("CrAss", "AdV", "PMMoV") ~ 1,
+                   TRUE ~ 0)
+         )|>
+  ggplot(aes(virus, rec))+
+  geom_boxplot(outlier.alpha = 0)+
+  geom_beeswarm(aes(shape = pntshape1), alpha = 0.5, cex = 2.5, size = 1)+
+  geom_beeswarm(aes(alpha = alpha1), shape = ".", cex = 2.5, colour = "white")+
+  geom_beeswarm(aes(shape = pntshape2), alpha = 0.5, cex = 3.5, size = 1)+
+  geom_beeswarm(aes(alpha = alpha2), shape = ".", cex = 3.5, colour = "white")+
+  scale_shape_identity()+
+  facet_grid(~shape + genome, scales = "free_x", space = "free_x")+
+  labs(x = "Virus",
+       y = "Recovery (%)")+
+  theme(legend.position = "none")
+
+pairwise_char <- char_pairwise.t.test|>
+  rowwise()|>
+  mutate(p.v = pvalue_star(p.v))|>
+  ggplot(aes(varx, vary))+
+  geom_tile(fill = "grey97", colour = "white")+
+  geom_text(aes(label = p.v))+
+  xlab("Method")+
+  theme(axis.title.y = element_blank(),
+        axis.text.x = element_text(angle = 90),
+        legend.position = "none")+
+  plot_spacer() +
+  plot_layout(heights = c(1.3,0.2), nrow = 2)
+
+
+fig5 <- (shape) / ((shape_viruses + pairwise_char) + plot_layout(widths = c(1.7,0.3))) + plot_layout(heights = c(1.3, 0.7), nrow = 2) + plot_annotation(tag_levels = "a")
+```
+
+
+Helical RNA viruses had the greatest median recovery (`r round(virus_char_ww|>filter(shape == "helical-RNA")|>summarise(med = median(rec))|>pull(med),2)`%), followed by spherical RNA (`r round(virus_char_ww|>filter(shape == "spherical-RNA")|>summarise(med = median(rec))|>pull(med),2)`%), head-tail DNA (`r round(virus_char_ww|>filter(shape == "Head-tail-DNA")|>summarise(med = median(rec))|>pull(med),2)`%), icosahedral DNA (`r round(virus_char_ww|>filter(shape == "icosahedral-DNA")|>summarise(med = median(rec))|>pull(med),2)`%), then icosahedral RNA (`r round(virus_char_ww|>filter(shape == "icosahedral-RNA")|>summarise(med = median(rec))|>pull(med),2)`%). Significant differences were found in the log transformed recovery between virus shape and genome (Figure 4a; `r paste_anova_fun(anova(lm(log(rec) ~ shape, virus_char_ww )), log = TRUE)`). However, pairwise comparisons only found helical RNA viruses to differ significantly from icosahedral DNA viruses (Figure 4c). 
+
+<br>
+
+```{r fig5}
+fig5
+```
+
+Figure 4: comparison of viral recovery between virus shape and genome type. Panel 'a' combines all virus recovery data, panel 'b' separates the data by indivdual viruses, and panel 'c' shows p-values (`r pull(notes,1)`) of pairwise comparisons with pooled standard deviations adjusted with the Holm-Bonferroni method. An ANOVA was used to compare log transformend recoveries.
+
+
+<br>
+
+### 3.5. Enveloped viruses have reduced recovery
+
+```{r envelope}
+enveloped.t.test <- tibble(label = stat_paste_fun(t.test(log(rec) ~ enveloped, virus_char_ww), log = TRUE),
+                           row = 1)
+
+enveloped <- virus_char_ww|>
+  mutate(row = row_number(),
+         enveloped = str_replace_all(enveloped, c("no" = "Naked",
+                                                 "yes" = "Enveloped")))|>
+  left_join(enveloped.t.test, by = "row")|>
+  ggplot(aes(enveloped, rec))+
+  geom_boxplot(outlier.alpha = 0)+
+  geom_beeswarm(alpha = 0.5)+
+  geom_beeswarm(shape = ".", colour = "white")+
+  geom_text(aes(x = 1.5, y = max(rec) + (0.07 * (max(rec) - min(rec))),
+                label = label), size = 3)+
+  labs(x = "Virus enveloped",
+       y = "Recovery (%)")
+
+enveloped_virus <- virus_char_ww|>
+  mutate(enveloped = str_replace_all(enveloped, c("no" = "Naked",
+                                                 "yes" = "Enveloped")))|>
+  ggplot(aes(virus, rec))+
+  geom_boxplot(outlier.alpha = 0)+
+  geom_beeswarm(alpha = 0.5)+
+  geom_beeswarm(shape = ".", colour = "white")+
+  facet_wrap(~enveloped, scales = "free_x")+
+  labs(x = "Virus enveloped",
+       y = "Recovery (%)")
+
+
+fig_envelope <- enveloped / enveloped_virus + plot_layout(heights = c(1.3, 0.7), nrow = 2) + plot_annotation(tag_levels = "a")
+
+```
+
+
+Naked viruses have a greater median recovery (`r round(virus_char_ww|>filter(enveloped == "no")|>pull(rec)|>median(),2)`%), compared to enveloped viruses (`r round(virus_char_ww|>filter(enveloped == "yes")|>pull(rec)|>median(),2)`%). The difference in mean log transformed recovery between enveloped and naked viruses was found to be significant (`r stat_paste_fun(t.test(log(rec) ~ enveloped, virus_char_ww), log = TRUE)`). These results indicate the viral envelope may be influencing the uptake of viral particles by the passive sampler or inhibiting downstream concentration and quantification processes.
+
+<br>
+
+```{r fig 5}
+fig_envelope
+```
+
+Figure 5: comparison of enveloped and naked virus recovery. Panel 'a' combines data from all viruses, whilst panel 'b' separates viruses individually. A Welch two sample t-test was used to compare log transformed recoveries.
+
+<br>
+
+## 5. Supplementary materials
+
+
+```{r plot S1 dwww_all, fig.height = 13, fig.width=9}
+WWDW_all
+```
+
+Figure S1: recovery percentage for all 11 spiked (S) and unspiked (U) viruses grouped by wastewater (WW), deionised water (DW), sample volume (ml), and concentration method. Points have been offset on the horizontal axis to avoid over plotting.
+
+
+<br>
+
+```{r S2 , fig.height = 4, fig.width = 6}
+wt_comp|>
+  ggplot(aes(sample = log(rec)))+
+  geom_qq()+
+  geom_qq_line()+
+  facet_wrap(~water_type, scales = "free")+
+  labs(y = "log recovery",
+       x = "theoretical")
+```
+
+Figure S2: quantile-quantile plot of log transformed virus recovery grouped by water type (De-ionised water DW and wastewater WW).
+
+<br>
+
+```{r S3, fig.height = 4, fig.width = 6}
+clean_ww|>
+  ggplot(aes(sample = log(rec)))+
+  geom_qq()+
+  geom_qq_line()+
+  facet_wrap(~material, scales = "free")+
+  labs(y = "log recovery",
+       x = "theoretical")
+```
+
+Figure S3: quantile-quantile plot of log transformed virus recovery grouped starting volume of wastewater.
+
+<br>
+
+```{r s4, fig.height = 6, fig.width = 6}
+clean_ww_t|>
+  ggplot(aes(sample = log(rec)))+
+  geom_qq()+
+  geom_qq_line()+
+  facet_wrap(~method, scales = "free")+
+  labs(y = "log recovery",
+       x = "theoretical")
+```
+
+Figure S4: quantile-quantile plot of log transformed virus recovery grouped by concentration method.
+
+
+<br>
+
+```{r s5, fig.height = 6, fig.width = 6}
+virus_char_ww|>
+  ggplot(aes(sample = log(rec)))+
+  geom_qq()+
+  geom_qq_line()+
+  facet_wrap(~shape, scales = "free")+
+  labs(y = "log recovery",
+       x = "theoretical")
+```
+
+Figure S5: quantile-quantile plot of log transformed virus recovery grouped by virus shape and genome type.
+
+<br>
+
+```{r s6, fig.height = 6, fig.width = 6}
+virus_char_ww|>
+  mutate(enveloped = str_replace_all(enveloped, c("no" = "Naked",
+                                                 "yes" = "Enveloped")))|>
+  ggplot(aes(sample = log(rec)))+
+  geom_qq()+
+  geom_qq_line()+
+  facet_wrap(~enveloped, scales = "free")+
+  labs(y = "log recovery",
+       x = "theoretical")
+```
+
+Figure S6: quantile-quantile plot of log transformed virus recovery grouped by virus shape and genome type.
