@@ -231,7 +231,7 @@ data <- read_csv("recovery_data.csv")
 
 virus_char <- read_csv("virus_characteristics.csv")|>
   pivot_longer(2:12, names_to = "virus", values_to = "value")|>
-  pivot_wider(names_from = "X1", values_from = "value")|>
+  pivot_wider(names_from = "...1", values_from = "value")|>
   mutate(virus = str_replace_all(virus, c("SARS" = "N1")))
 
 clean <- data|>
