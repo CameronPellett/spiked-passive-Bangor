@@ -274,12 +274,12 @@ ww_all <- clean|>
                                                 "T" = "Tampon")),
         material = paste0(material, " WW"),
          virus = str_replace_all(virus, c("SARS-CoV-2" = "SARS")))|>
-  ggplot(aes(y = rec, x =method))+
+  ggplot(aes(y = log(rec), x =method))+
   geom_beeswarm(cex = 2)+
   geom_beeswarm(cex = 2, size = 0.1, colour = "white")+
   scale_y_continuous(sec.axis = sec_axis( trans=~.*1, name="Virus", labels = NULL, breaks = NULL))+
   facet_grid(samples_spiked + virus ~ material, scale = "free", space = "free_x")+
-  labs(x = "Concentration method", y = "Recovery (%)")
+  labs(x = "Concentration method", y = "log recovery")
 
 dw_all <- clean|>
   filter(water_type == "DW", samples_spiked == "S")|>
@@ -292,7 +292,7 @@ dw_all <- clean|>
   geom_beeswarm(cex = 2, size = 0.1, colour = "white")+
   scale_y_continuous(sec.axis = sec_axis( trans=~.*1, name="Virus", labels = NULL, breaks = NULL))+
   facet_grid(samples_spiked + virus ~ material, scale = "free", space = "free_x")+
-  labs(x = "Concentration method", y = "Recovery (%)")
+  labs(x = "Concentration method", y = "log recovery")
 
 WWDW_all <- (ww_all + theme(axis.title.x = element_blank())) / dw_all + plot_layout(heights = c(1.1, 0.8))
 ```
