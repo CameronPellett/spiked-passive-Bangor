@@ -1,7 +1,7 @@
 ---
-title: "Draft 1"
+title: "Draft 1.0.2"
 author: "Cameron Pellett & Katy Lambert-Slosarska"
-date: "14/01/2022"
+date: "18/01/2022"
 output: html_document
 ---
 
@@ -231,8 +231,7 @@ data <- read_csv("recovery_data.csv")
 
 virus_char <- read_csv("virus_characteristics.csv")|>
   pivot_longer(2:12, names_to = "virus", values_to = "value")|>
-  pivot_wider(names_from = "X1", values_from = "value")|>
-  mutate(virus = str_replace_all(virus, c("SARS" = "N1")))
+  pivot_wider(names_from = "X1", values_from = "value")
 
 clean <- data|>
   select(-Sample_code)|>
@@ -255,7 +254,8 @@ clean <- data|>
          method = factor(method),
          genome = factor(genome),
          samples_spiked = str_replace_all(samples_spiked, c("yes" = "S",
-                                                            "no" = "U")))|>
+                                                            "no" = "U")),
+         virus = str_replace_all(virus, c("SARS" = "SARS-CoV-2")))|>
   na.omit()
 
 
@@ -271,7 +271,8 @@ ww_all <- clean|>
   filter(water_type == "WW")|>
   mutate(material = str_replace_all(material, c("W" = "Whatman paper",
                                                 "T" = "Tampon")),
-        material = paste0(material, " WW"))|>
+        material = paste0(material, " WW"),
+         virus = str_replace_all(virus, c("SARS-CoV-2" = "SARS")))|>
   ggplot(aes(y = rec, x =method))+
   geom_beeswarm(cex = 2)+
   geom_beeswarm(cex = 2, size = 0.1, colour = "white")+
@@ -283,7 +284,8 @@ dw_all <- clean|>
   filter(water_type == "DW", samples_spiked == "S")|>
   mutate(material = str_replace_all(material, c("W" = "Whatman paper",
                                                 "T" = "Tampon")),
-        material = paste0(material, " DW"))|>
+        material = paste0(material, " DW"),
+         virus = str_replace_all(virus, c("SARS-CoV-2" = "SARS")))|>
   ggplot(aes(y = rec, x =method))+
   geom_beeswarm(cex = 2)+
   geom_beeswarm(cex = 2, size = 0.1, colour = "white")+
@@ -298,9 +300,9 @@ WWDW_all <- (ww_all + theme(axis.title.x = element_blank())) / dw_all + plot_lay
 
 ### 2.1 Statistical methodology
 
-Data analysis and statistical tests were carried out in R (R Core Team, 2020); the full script and data are provided in a dedicated repository (<https://github.com/CameronPellett/spiked-passive-Bangor>).
+Statistical tests were carried out in R (R Core Team, 2020); the full script and data are provided in a dedicated repository (<https://github.com/CameronPellett/spiked-passive-Bangor>).
 
-Passive sample material (tampon and Whatman paper), concentration and extraction method (BE-PEG, Direct extraction, No elution PEG, and PBS-PEG), water type (wastewater WW, and deionised water DW), target virus shape and genome type (spherical-RNA, head-tail-DNA, icosahedral-DNA, helical-RNA, and icosahedral-RNA), and virus envelope (Enveloped, and naked) were selected as factors and co-variates of viral recovery. Comparisons of individual features were visualised, and statistical tests were carried out. First, viral recovery was compared between water types; comparisons were made with only spiked samples, due to a lack of naturally present virus in deionised water. Second, the tampon and Whatman paper passive sample materials were compared; only samples suspended in wastewater were compared to mimic expected conditions. Third, after selecting the best material, concentration and extraction methods were compared for samples suspended in wastewater. Then finally, virus characteristics were compared with tampon passive samplers suspended in wastewater. For statistical tests the recovery percentile was log transformed to meet assumptions of a Gaussian distribution (see supplementary materials Figure S1-S6 for quantile-quantile plots). Equality of variances were tested with F tests. Statistical comparisons of features with two levels and non-equal variance were made with Welch two sample t-tests. Comparisons with three or more levels and non-equal variance were made with a Welch ANOVA (one way comparison of means), followed by pairwise two sample t-tests without pooled standard deviations, adjusting p-values with the Holm-Bonferroni method. Paired tests were not selected due to missing data created by removal of undetermined results and sample removal during qPCR quality control. 
+Passive sample material (tampon and Whatman paper), concentration and extraction method (BE-PEG, direct extraction, no elution PEG, and PBS-PEG), water type (wastewater WW, and deionised water DW), target virus shape and genome type (spherical-RNA, head-tail-DNA, icosahedral-DNA, helical-RNA, and icosahedral-RNA), and virus envelope (enveloped, and non-enveloped) were selected as factors and co-variates of viral recovery. Comparisons of individual features were visualised, and statistical tests were carried out. First, viral recovery was compared between water types; comparisons were made with only spiked samples, due to a lack of naturally present virus in unspiked deionised water. Second, the tampon and Whatman paper passive sample materials were compared; only samples suspended in wastewater were compared to mimic expected conditions. Third, after selecting the best passive sampler material, process methods were compared for samples suspended in wastewater. Then finally, virus characteristics were compared with tampon passive samplers suspended in wastewater. For statistical tests the recovery percentile was log transformed to meet assumptions of a Gaussian distribution (see supplementary materials Figure S1-S6 for quantile-quantile plots). Equality of variances were tested with F tests. Statistical comparisons of features with two levels and non-equal variance were made with Welch two sample t-tests. Comparisons with three or more levels and non-equal variance were made with a Welch ANOVA (one way comparison of means), followed by pairwise two sample t-tests without pooled standard deviations, adjusting p-values with the Holm-Bonferroni method. Paired tests were not selected due to missing data created by removal of undetermined results and sample removal during qPCR quality control. 
 
 
 <br>
@@ -348,7 +350,7 @@ Figure1 <- (wt_comp|>
   
 ```
 
-Passive samples had a greater median recovery of spiked virus when suspended in deionised water (`r round(median(wt_comp|>filter(water_type == "DW")|>pull(rec)),2)`%) compared to wastewater (`r round(median(wt_comp|>filter(water_type == "WW")|>pull(rec)),2)`%). The difference between water types was found to be significant when comparing log transformed recovery (Figure 1a; `r stat_paste_fun(t.test(log(rec) ~ water_type, data = wt_comp), log = TRUE)`). These results suggest chemicals or other materials in wastewater influence uptake of virus on the passive sampler or inhibit later processing and quantification of the viral nucleotides collected in the sample. After identifying the difference in recovery between water types, only data for wastewater suspended samples was retained for further analysis to imitate expected conditions. 
+Passive samples had a greater median recovery of spiked viruses when they were suspended in deionised water (`r round(median(wt_comp|>filter(water_type == "DW")|>pull(rec)),2)`%) compared to suspension in wastewater (`r round(median(wt_comp|>filter(water_type == "WW")|>pull(rec)),2)`%). The difference between water types was found to be significant when comparing log transformed recovery (Figure 1a; `r stat_paste_fun(t.test(log(rec) ~ water_type, data = wt_comp), log = TRUE)`). These results suggest chemicals or other materials in wastewater influence uptake of virus on the passive sampler or inhibit later processing and quantification of the viral nucleotides collected in the sample. After identifying the difference in recovery between water types, only data for wastewater suspended samples were retained for further analysis to imitate expected conditions. 
 
 
 <br>
@@ -358,7 +360,7 @@ Passive samples had a greater median recovery of spiked virus when suspended in 
 Figure1
 ```
 
-Figure 1: Comparison of spiked virus recovery using passive samplers in wastewater (WW) and deionised water (DW). Panel 'a' combines data for all viruses, whilst panel 'b' separates recovery by each virus. A Welch two sample t-test was used to compare log transformed recoveries.
+Figure 1: Comparison of spiked virus recovery using passive samplers in wastewater (WW) and deionised water (DW). Panel 'a' combines data for all viruses, whilst panel 'b' separates recovery by each virus, such as influenza A and B (Flu-A and Flu-B), measles virus (MeV), SARS-CoV-2 (N1), norovirus GII (NoVGII) and bacteriophage phi6 (Phi6). A Welch two sample t-test was used to compare log transformed recoveries.
 
 
 
@@ -404,7 +406,7 @@ fig2 <- fig2a/ fig2b + plot_layout( heights = c(1.3, 0.7)) + plot_annotation(tag
 
 ```
 
-The median recovery of Tampon passive samplers (`r round(clean_ww|>filter(material == "T")|>pull(rec)|>median(), 2)`%) was greater than Whatman paper (`r round(clean_ww|>filter(material == "W")|>pull(rec)|>median(), 2)`%). Which was found to be significant when comparing log transformed recovery (Figure 2a; `r stat_paste_fun(t.test(log(rec) ~ material, data = wt_comp), log = TRUE)`). The same trend was seen in all individual viruses (Figure 2b). These results indicate Tampon material is preferred for construction of passive samplers. After selecting the preferred material, only data for tampon passive samplers was retained for further analysis.
+The median recovery of Tampon passive samplers (`r round(clean_ww|>filter(material == "T")|>pull(rec)|>median(), 2)`%) was greater than the recoveries observed when Whatman paper was used (`r round(clean_ww|>filter(material == "W")|>pull(rec)|>median(), 2)`%). This was found to be significant when comparing log transformed recovery (Figure 2a; `r stat_paste_fun(t.test(log(rec) ~ material, data = wt_comp), log = TRUE)`). The same trend was seen in all individual viruses (Figure 2b). These results indicate Tampon material is preferred for construction of passive samplers. After selecting the preferred material, only data for tampon passive samplers was retained for further analysis.
 
 
 <br>
@@ -415,7 +417,7 @@ fig2
 ```
 
 
-Figure 2: comparison of viral recovery with tampon and Whatman paper passive samplers suspended in wastewater. Panel 'a' combines data for all viruses, whilst panel 'b' separates recovery by each virus. A Welch two sample t-test was used to compare log transformed recoveries.
+Figure 2: comparison of viral recovery with tampon and Whatman paper passive samplers suspended in wastewater. Panel 'a' combines data for all viruses, whilst panel 'b' separates recovery by each virus, such as human adenovirus (AdV), crAssphage (CrAss), Flu-A and Flu-B, MeV, SARS-CoV-2 (N1), NoVGII, Phi6 and pepper mild mottle virus (PMMoV). A Welch two sample t-test was used to compare log transformed recoveries.
 
 
 
@@ -487,7 +489,7 @@ fig3 <- fig3a / (fig3b + (fig3c/ plot_spacer()) + plot_layout(widths = c(1.35, 0
 
 ```
 
-The no elution PEG concentration method had the highest median recovery (`r round(clean_ww_t|>filter(method == "N")|>pull(rec)|>median(), 2)`%), followed by direct extraction (`r round(clean_ww_t|>filter(method == "D")|>pull(rec)|>median(), 2)`%), BE-PEG (`r round(clean_ww_t|>filter(method == "BE")|>pull(rec)|>median(), 2)`%), then PBS-PEG (`r round(clean_ww_t|>filter(method == "P")|>pull(rec)|>median(), 2)`%). Significant differences between the log transformed recovery were found (Figure 3a; `r stat_paste_fun(oneway.test(log(rec) ~ method, data = clean_ww_t), log = TRUE)[1]`), though pairwise comparisons found no significant difference between the no elution PEG and direct extraction methods (Figure 3c). Which was likely due to some viruses (AdV and Phi6) having greater recovery with direct extraction compared to no elution PEG (Figure 3b). These results suggest the no elution PEG method is generally preferred for processing passive samples, but if AdV or Phi6 are the primary targets, the direct extraction method may be selected.
+The no elution PEG concentration method had the highest median recovery (`r round(clean_ww_t|>filter(method == "N")|>pull(rec)|>median(), 2)`%), followed by direct extraction (`r round(clean_ww_t|>filter(method == "D")|>pull(rec)|>median(), 2)`%), BE-PEG (`r round(clean_ww_t|>filter(method == "BE")|>pull(rec)|>median(), 2)`%), then PBS-PEG methods (`r round(clean_ww_t|>filter(method == "P")|>pull(rec)|>median(), 2)`%). Significant differences between the log transformed recovery were found (Figure 3a; `r stat_paste_fun(oneway.test(log(rec) ~ method, data = clean_ww_t), log = TRUE)[1]`), though pairwise comparisons found no significant difference between the no elution PEG and direct extraction methods (Figure 3c). This was likely due to some viruses (AdV and Phi6) having greater recovery with direct extraction compared to no elution PEG (Figure 3b). These results suggest the no elution PEG method is generally preferred for processing passive samples, but if AdV or Phi6 are the primary targets, the direct extraction method may be selected.
 
 
 
@@ -499,7 +501,7 @@ fig3
 ```
 
 
-Figure 3: comparison of viral recovery between concentraion/extraction methods carried out on tampon passive samples suspended in wastewater. Panel 'a' combines data for all viruses, panel 'b' separates recovery by each virus, and panel 'c' shows p-values (`r pull(notes,1)`) of pairwise comparisons without pooled standard deviations adjusted with the Holm-Bonferroni method.
+Figure 3: Comparison of viral recovery between processing methods carried out on tampon passive samples suspended in wastewater. Panel 'a' combines data for all viruses, panel 'b' separates recovery by each virus, and panel 'c' shows p-values (`r pull(notes,1)`) of pairwise comparisons without pooled standard deviations adjusted with the Holm-Bonferroni method.
 
 
 <br>
@@ -582,7 +584,7 @@ fig5 <- (shape) / ((shape_viruses + pairwise_char) + plot_layout(widths = c(1.7,
 ```
 
 
-Helical RNA viruses had the greatest median recovery (`r round(virus_char_ww|>filter(shape == "helical-RNA")|>summarise(med = median(rec))|>pull(med),2)`%), followed by spherical RNA (`r round(virus_char_ww|>filter(shape == "spherical-RNA")|>summarise(med = median(rec))|>pull(med),2)`%), head-tail DNA (`r round(virus_char_ww|>filter(shape == "Head-tail-DNA")|>summarise(med = median(rec))|>pull(med),2)`%), icosahedral DNA (`r round(virus_char_ww|>filter(shape == "icosahedral-DNA")|>summarise(med = median(rec))|>pull(med),2)`%), then icosahedral RNA (`r round(virus_char_ww|>filter(shape == "icosahedral-RNA")|>summarise(med = median(rec))|>pull(med),2)`%). Significant differences were found in the log transformed recovery between virus shape and genome (Figure 4a; `r paste_anova_fun(anova(lm(log(rec) ~ shape, virus_char_ww )), log = TRUE)`). However, pairwise comparisons only found helical RNA viruses to differ significantly from icosahedral DNA viruses (Figure 4c). 
+The helical RNA virus, PMMoV, had the greatest median recovery (`r round(virus_char_ww|>filter(shape == "helical-RNA")|>summarise(med = median(rec))|>pull(med),2)`%), followed by spherical RNA viruses (SARS-CoV-2, MeV and Flu viruses; `r round(virus_char_ww|>filter(shape == "spherical-RNA")|>summarise(med = median(rec))|>pull(med),2)`%), the head-tail DNA virus (crAssphage; `r round(virus_char_ww|>filter(shape == "Head-tail-DNA")|>summarise(med = median(rec))|>pull(med),2)`%), the icosahedral DNA virus (AdV; `r round(virus_char_ww|>filter(shape == "icosahedral-DNA")|>summarise(med = median(rec))|>pull(med),2)`%), then icosahedral RNA viruses (Phi6 and NoVGII; `r round(virus_char_ww|>filter(shape == "icosahedral-RNA")|>summarise(med = median(rec))|>pull(med),2)`%). Significant differences were found in the log transformed recovery between virus shape and genome (Figure 4a; `r paste_anova_fun(anova(lm(log(rec) ~ shape, virus_char_ww )), log = TRUE)`). However, pairwise comparisons only found the helical RNA virus (PMMoV) to differ significantly from the icosahedral DNA virus (AdV; Figure 4c). 
 
 <br>
 
@@ -590,7 +592,7 @@ Helical RNA viruses had the greatest median recovery (`r round(virus_char_ww|>fi
 fig5
 ```
 
-Figure 4: comparison of viral recovery between virus shape and genome type. Panel 'a' combines all virus recovery data, panel 'b' separates the data by indivdual viruses, and panel 'c' shows p-values (`r pull(notes,1)`) of pairwise comparisons with pooled standard deviations adjusted with the Holm-Bonferroni method. An ANOVA was used to compare log transformend recoveries.
+Figure 4: Comparison of viral recovery between virus shape and genome type. Panel 'a' combines all virus recovery data, panel 'b' separates the data by indivdual viruses, and panel 'c' shows p-values (`r pull(notes,1)`) of pairwise comparisons with pooled standard deviations adjusted with the Holm-Bonferroni method. An ANOVA was used to compare log transformend recoveries.
 
 
 <br>
@@ -603,7 +605,7 @@ enveloped.t.test <- tibble(label = stat_paste_fun(t.test(log(rec) ~ enveloped, v
 
 enveloped <- virus_char_ww|>
   mutate(row = row_number(),
-         enveloped = str_replace_all(enveloped, c("no" = "Naked",
+         enveloped = str_replace_all(enveloped, c("no" = "Non-enveloped",
                                                  "yes" = "Enveloped")))|>
   left_join(enveloped.t.test, by = "row")|>
   ggplot(aes(enveloped, rec))+
@@ -616,7 +618,7 @@ enveloped <- virus_char_ww|>
        y = "Recovery (%)")
 
 enveloped_virus <- virus_char_ww|>
-  mutate(enveloped = str_replace_all(enveloped, c("no" = "Naked",
+  mutate(enveloped = str_replace_all(enveloped, c("no" = "Non-nenveloped",
                                                  "yes" = "Enveloped")))|>
   ggplot(aes(virus, rec))+
   geom_boxplot(outlier.alpha = 0)+
@@ -632,7 +634,7 @@ fig_envelope <- enveloped / enveloped_virus + plot_layout(heights = c(1.3, 0.7),
 ```
 
 
-Naked viruses have a greater median recovery (`r round(virus_char_ww|>filter(enveloped == "no")|>pull(rec)|>median(),2)`%), compared to enveloped viruses (`r round(virus_char_ww|>filter(enveloped == "yes")|>pull(rec)|>median(),2)`%). The difference in mean log transformed recovery between enveloped and naked viruses was found to be significant (`r stat_paste_fun(t.test(log(rec) ~ enveloped, virus_char_ww), log = TRUE)`). These results indicate the viral envelope may be influencing the uptake of viral particles by the passive sampler or inhibiting downstream concentration and quantification processes.
+Non-enveloped viruses have a greater median recovery (`r round(virus_char_ww|>filter(enveloped == "no")|>pull(rec)|>median(),2)`%), compared to enveloped viruses (`r round(virus_char_ww|>filter(enveloped == "yes")|>pull(rec)|>median(),2)`%). The difference in mean log transformed recovery between enveloped and non-enveloped viruses was found to be significant (`r stat_paste_fun(t.test(log(rec) ~ enveloped, virus_char_ww), log = TRUE)`; Figure 5a). These results indicate the viral envelope may be influencing the uptake of viral particles by the passive sampler or inhibiting downstream concentration and quantification processes.
 
 <br>
 
@@ -640,7 +642,7 @@ Naked viruses have a greater median recovery (`r round(virus_char_ww|>filter(env
 fig_envelope
 ```
 
-Figure 5: comparison of enveloped and naked virus recovery. Panel 'a' combines data from all viruses, whilst panel 'b' separates viruses individually. A Welch two sample t-test was used to compare log transformed recoveries.
+Figure 5: Comparison of enveloped and non-enveloped virus recovery. Panel 'a' combines data from all viruses, whilst panel 'b' separates viruses individually. A Welch two sample t-test was used to compare log transformed recoveries.
 
 <br>
 
@@ -715,7 +717,7 @@ Figure S5: quantile-quantile plot of log transformed virus recovery grouped by v
 
 ```{r s6, fig.height = 6, fig.width = 6}
 virus_char_ww|>
-  mutate(enveloped = str_replace_all(enveloped, c("no" = "Naked",
+  mutate(enveloped = str_replace_all(enveloped, c("no" = "Non-enveloped",
                                                  "yes" = "Enveloped")))|>
   ggplot(aes(sample = log(rec)))+
   geom_qq()+
